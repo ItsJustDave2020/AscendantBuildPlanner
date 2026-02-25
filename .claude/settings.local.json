@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:www.ascendanteq.com)",
+      "WebFetch(domain:ascendanteq.com)",
+      "Bash(npm install)"
+    ]
+  }
+}
