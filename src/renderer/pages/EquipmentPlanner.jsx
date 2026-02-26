@@ -1,7 +1,40 @@
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import { Search, X, Loader2, Package } from 'lucide-react'
 import { EQUIPMENT_SLOTS, STAT_LABELS, CLASSES } from '../data/constants'
 import { useItemSearch } from '../hooks/useApi'
+
+const ITEM_TIERS = [
+  { suffix: null, label: 'Basic', color: 'text-eq-muted', bg: 'bg-eq-panel2', border: 'border-eq-border', active: 'bg-eq-muted/20 border-eq-muted' },
+  { suffix: '(Enhanced)', label: 'Enhanced', color: 'text-eq-green', bg: 'bg-eq-green/5', border: 'border-eq-green/20', active: 'bg-eq-green/20 border-eq-green' },
+  { suffix: '(Exalted)', label: 'Exalted', color: 'text-eq-blue', bg: 'bg-eq-blue/5', border: 'border-eq-blue/20', active: 'bg-eq-blue/20 border-eq-blue' },
+  { suffix: '(Ascendant)', label: 'Ascendant', color: 'text-eq-gold', bg: 'bg-eq-gold/5', border: 'border-eq-gold/20', active: 'bg-eq-gold/20 border-eq-gold' },
+]
+
+function getBaseName(name) {
+  return name
+    .replace(/\s*\(Enhanced\)\s*$/, '')
+    .replace(/\s*\(Exalted\)\s*$/, '')
+    .replace(/\s*\(Ascendant\)\s*$/, '')
+    .trim()
+}
+
+function getItemTierIndex(name) {
+  if (name.endsWith('(Ascendant)')) return 3
+  if (name.endsWith('(Exalted)')) return 2
+  if (name.endsWith('(Enhanced)')) return 1
+  return 0
+}
+
+function groupItemsByBase(items) {
+  const groups = {}
+  items.forEach(item => {
+    const base = getBaseName(item.Name || item.name)
+    if (!groups[base]) groups[base] = { baseName: base, tiers: [null, null, null, null] }
+    const tierIdx = getItemTierIndex(item.Name || item.name)
+    groups[base].tiers[tierIdx] = item
+  })
+  return Object.values(groups)
+}
 
 export default function EquipmentPlanner({ buildState }) {
   const { build, equipItem, unequipItem, clearEquipment, equipmentStats } = buildState
@@ -99,11 +132,26 @@ export default function EquipmentPlanner({ buildState }) {
 function ItemSearchPanel({ slotId, slotName, classId, onEquip, onClose }) {
   const { results, loading, error, search } = useItemSearch()
   const [searchName, setSearchName] = useState('')
+  const [expandedGroup, setExpandedGroup] = useState(null)
+  const [selectedTiers, setSelectedTiers] = useState({})
+
+  const grouped = useMemo(() => groupItemsByBase(results), [results])
 
   const handleSearch = (e) => {
     e.preventDefault()
     if (!searchName.trim()) return
     search({ name: searchName })
+    setExpandedGroup(null)
+    setSelectedTiers({})
+  }
+
+  const getActiveTier = (baseName, tiers) => {
+    if (selectedTiers[baseName] !== undefined) return selectedTiers[baseName]
+    // Default to highest available tier
+    for (let i = 3; i >= 0; i--) {
+      if (tiers[i]) return i
+    }
+    return 0
   }
 
   return (
@@ -129,35 +177,110 @@ function ItemSearchPanel({ slotId, slotName, classId, onEquip, onClose }) {
           </button>
         </div>
       </form>
-      <div className="flex-1 overflow-y-auto p-2 space-y-1">
+      <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
         {loading && (
           <div className="flex justify-center py-8">
             <Loader2 className="animate-spin text-eq-blue" size={24} />
           </div>
         )}
-        {!loading && results.length === 0 && searchName && (
+        {!loading && grouped.length === 0 && searchName && (
           <p className="text-center text-eq-muted text-xs py-8">No items found.</p>
         )}
-        {results.map(item => (
-          <button
-            key={item.id}
-            onClick={() => onEquip(item)}
-            className="w-full text-left p-2 rounded hover:bg-eq-panel2 transition-colors"
-          >
-            <div className="text-xs font-medium text-eq-blue">{item.name}</div>
-            <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
-              {Object.entries(STAT_LABELS).map(([key, label]) => {
-                const val = item[key]
-                if (!val || val === 0) return null
-                return (
-                  <span key={key} className="text-[10px] text-eq-muted">
-                    <span className="text-eq-text font-medium">{val > 0 ? '+' : ''}{val}</span> {label}
-                  </span>
-                )
-              })}
+        {grouped.map(group => {
+          const isExpanded = expandedGroup === group.baseName
+          const activeTier = getActiveTier(group.baseName, group.tiers)
+          const activeItem = group.tiers[activeTier]
+          const tierInfo = ITEM_TIERS[activeTier]
+          const hasTiers = group.tiers.filter(Boolean).length > 1
+
+          return (
+            <div key={group.baseName} className="rounded-lg border border-eq-border overflow-hidden bg-eq-panel">
+              {/* Item header */}
+              <div
+                className="flex items-center gap-2 px-2.5 py-2 cursor-pointer hover:bg-eq-panel2/50"
+                onClick={() => setExpandedGroup(isExpanded ? null : group.baseName)}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-medium text-eq-blue truncate">{group.baseName}</div>
+                  {hasTiers && (
+                    <div className={`text-[10px] font-semibold ${tierInfo.color}`}>
+                      {tierInfo.label}
+                    </div>
+                  )}
+                </div>
+                {activeItem && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onEquip({ ...activeItem, name: activeItem.Name || activeItem.name })
+                    }}
+                    className="px-2 py-1 rounded text-[10px] font-medium bg-eq-blue/20 text-eq-blue hover:bg-eq-blue/30 shrink-0"
+                  >
+                    Equip
+                  </button>
+                )}
+              </div>
+
+              {/* Expanded: tier selector + stats */}
+              {isExpanded && (
+                <div className="border-t border-eq-border bg-eq-panel2/30 px-2.5 py-2 space-y-2">
+                  {/* Tier tabs */}
+                  {hasTiers && (
+                    <div className="flex gap-1">
+                      {group.tiers.map((item, idx) => {
+                        if (!item) return null
+                        const t = ITEM_TIERS[idx]
+                        const isActive = activeTier === idx
+                        return (
+                          <button
+                            key={idx}
+                            onClick={() => setSelectedTiers(prev => ({ ...prev, [group.baseName]: idx }))}
+                            className={`px-2 py-1 rounded text-[10px] font-semibold border transition-colors ${
+                              isActive ? `${t.active} ${t.color}` : `${t.bg} ${t.border} ${t.color} opacity-60 hover:opacity-100`
+                            }`}
+                          >
+                            {t.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+
+                  {/* Stats for active tier */}
+                  {activeItem && (
+                    <div className="space-y-1">
+                      {/* Weapon stats */}
+                      {(activeItem.damage > 0 || activeItem.delay > 0) && (
+                        <div className="flex gap-3 text-[10px]">
+                          {activeItem.damage > 0 && (
+                            <span className="text-eq-muted">Dmg: <span className="text-eq-text font-medium">{activeItem.damage}</span></span>
+                          )}
+                          {activeItem.delay > 0 && (
+                            <span className="text-eq-muted">Dly: <span className="text-eq-text font-medium">{activeItem.delay}</span></span>
+                          )}
+                          {activeItem.damage > 0 && activeItem.delay > 0 && (
+                            <span className="text-eq-muted">Ratio: <span className="text-eq-text font-medium">{(activeItem.damage / activeItem.delay * 10).toFixed(1)}</span></span>
+                          )}
+                        </div>
+                      )}
+                      <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+                        {Object.entries(STAT_LABELS).map(([key, label]) => {
+                          const val = activeItem[key]
+                          if (!val || val === 0) return null
+                          return (
+                            <span key={key} className="text-[10px] text-eq-muted">
+                              <span className="text-eq-text font-medium">{val > 0 ? '+' : ''}{val}</span> {label}
+                            </span>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-          </button>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

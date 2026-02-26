@@ -16,14 +16,11 @@ export default function AAPlanner({ buildState, allAAs, loading }) {
   const filteredAAs = useMemo(() => {
     let result = allAAs.filter(aa => aa.enabled === 1)
 
-    // If user has a class, filter out AAs that belong ONLY to that class
+    // Filter out AAs that belong to the user's class (can't buy your own class's AAs)
     if (build.classId) {
       result = result.filter(aa => {
         const classNames = aa.originalClassNames || []
-        // Keep it if it's from another class (not exclusively the user's class)
-        return !classNames.every(cn =>
-          cn === build.className
-        )
+        return !classNames.includes(build.className)
       })
     }
 
@@ -200,7 +197,6 @@ export default function AAPlanner({ buildState, allAAs, loading }) {
                   expandedAA === aa.universalId ? null : aa.universalId
                 )}
                 onSetRank={(rank) => setAARank(aa, rank)}
-                buildClassName={build.className}
               />
             ))}
           </div>
@@ -210,16 +206,14 @@ export default function AAPlanner({ buildState, allAAs, loading }) {
   )
 }
 
-function AACard({ aa, isSelected, selectedRanks, isExpanded, onToggleExpand, onSetRank, buildClassName }) {
+function AACard({ aa, isSelected, selectedRanks, isExpanded, onToggleExpand, onSetRank }) {
   const tier = TIER_COLORS[aa.tier]
-  const isOwnClass = aa.originalClassNames?.length === 1 && aa.originalClassNames[0] === buildClassName
 
   return (
     <div
       className={`
         panel transition-all duration-150 overflow-hidden
         ${isSelected ? `ring-1 ${tier.text === 'text-eq-greater' ? 'ring-eq-greater/50' : tier.text === 'text-eq-blue' ? 'ring-eq-blue/50' : 'ring-eq-gold/50'}` : ''}
-        ${isOwnClass ? 'opacity-50' : ''}
       `}
     >
       {/* Main row */}
@@ -285,8 +279,7 @@ function AACard({ aa, isSelected, selectedRanks, isExpanded, onToggleExpand, onS
           ) : (
             <button
               onClick={() => onSetRank(1)}
-              disabled={isOwnClass}
-              className="px-2 py-1 rounded text-xs bg-eq-blue/20 text-eq-blue hover:bg-eq-blue/30 disabled:opacity-30 disabled:cursor-not-allowed"
+              className="px-2 py-1 rounded text-xs bg-eq-blue/20 text-eq-blue hover:bg-eq-blue/30"
             >
               <Plus size={12} className="inline mr-0.5" />
               Add
